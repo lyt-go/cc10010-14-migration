@@ -74,5 +74,44 @@ npm run dev
 - 列表接口统一返回 `{ items, total, page, size }`，动作接口统一返回 `{ ok, message }`。
 - 状态流转只允许在 `app/services` 里改，路由层不做业务判断。
 
+## 运行实例历史数据迁移（类型化快照）
+
+历史运行实例把时间、吞吐、执行状态存成不可解析文本，系统启动时自动迁移为
+**带版本的类型化运行数据快照**，仅依赖标准库，示例数据、本地开发与上线读取
+走同一套迁移代码与同一结构版本（`config.settings.runtime_snapshot_version`）。
+
+- 迁移引擎：`backend/app/services/runtime_snapshot.py`
+  - 快照保留原运行编号（`runtime_id`/`record_code`）与来源版本（`source_version`），
+    原始文本完整留痕在 `raw_legacy`。
+  - 逐字段解析并打兼容标记：`ok` / `migrated`（旧枚举、千分位等旧格式）/
+    `missing`（缺失结束时间等）/ `invalid`（非法吞吐、不可解析时间）/
+    `conflict`（旧文本与类型化值冲突）。
+  - 兼容标记的基线口径集中在 `BASELINE_MARKER_POLICY`：缺失不算破线、非法排除出
+    数值指标、冲突以类型化值为唯一口径——选用哪种标记会改变基线计算结果。
+  - 同一历史快照（内容指纹不变）重复迁移只生成一个数据版本；记录被重跑更新后
+    才追加新数据版本，旧版本保留可审计。
+- 统一统计口径：`backend/app/services/runtime_stats.py`，运行实例清单、基线管理
+  与跨业务面统计（`/api/runtime-snapshots/stats`）全部消费同一份最新快照。
+- 事务：`Store.transaction()` 以锁 + 深拷贝实现，迁移转换与基线重算在同一事务内
+  提交，异常整体回滚，外部读不到半迁移状态。运行实例动作、异常重跑动作与基线
+  动作都会在同一事务内连带重算快照与基线清单。
+- 运行实例清单（`/api/runtime`）继续延续旧表记录与旧中文字段，同时回填
+  `typed_*` 类型化字段、兼容标记与版本信息；基线清单行同步携带
+  「运行实例结果」。
+
+### 迁移相关接口
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /api/runtime-snapshots` | 当前生效的类型化快照；`include_versions=true` 查看全部历史版本 |
+| `POST /api/runtime-snapshots/migrate` | 手动触发迁移并同事务重算基线（幂等） |
+| `GET /api/runtime-snapshots/stats` | 跨业务面统一统计（状态/时间/吞吐同一口径） |
+| `GET /api/runtime-snapshots/marker-policy` | 兼容标记及其对基线计算的影响口径 |
+| `GET /api/runtime/stats` | 运行实例页统计卡片，与上同口径 |
+| `POST /api/baseline/recalculate` | 按最新快照重算基线管理清单 |
+| `GET /api/baseline/results` | 每条基线带版本的运行实例重算结果 |
+
+后端回归测试：`cd backend && .venv/bin/python -m unittest tests.test_runtime_migration -v`
+
 领域：数据工程
 子方向：数仓与数据湖

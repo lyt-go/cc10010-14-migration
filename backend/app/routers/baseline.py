@@ -16,6 +16,20 @@ LIST_FIELDS = ["基线编号", "基线名称", "承诺完成时间", "预警余�
 STATUSES = ["草稿", "基线评审中", "已启用", "已停用"]
 
 
+@router.post("/recalculate", response_model=ActionResult)
+def recalculate() -> ActionResult:
+    """加载带版本的类型化运行数据快照，同步重算基线清单的运行实例结果。"""
+    summary = service.recalculate()
+    return ActionResult(ok=True, message="基线管理清单已按最新运行快照重算", entry=summary)
+
+
+@router.get("/results", response_model=dict)
+def results() -> dict[str, Any]:
+    """查看每条基线基于快照重算出的带版本运行实例结果。"""
+    items = service.results()
+    return {"module": "baseline", "total": len(items), "items": items}
+
+
 @router.get("", response_model=PageResult[dict])
 def list_entries(
     keyword: str | None = Query(default=None, description="按基线编号检索"),
@@ -28,6 +42,13 @@ def list_entries(
         raise HTTPException(status_code=400, detail="每页最多 200 条，请缩小分页范围")
     items, total = service.list_entries(keyword=keyword, status=status, page=page, size=size)
     return PageResult(items=items, total=total, page=page, size=size)
+
+
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出基线管理清单：返回当前过滤条件下的全量数据。"""
+    items, total = service.list_entries(page=1, size=10000)
+    return {"module": "baseline", "total": total, "items": items}
 
 
 @router.get("/{entry_id}", response_model=dict)
@@ -56,10 +77,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出基线管理清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "baseline", "total": total, "items": items}

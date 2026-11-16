@@ -17,6 +17,12 @@ class Settings:
     )
     page_size_default: int = 20
     page_size_max: int = 200
+    # 类型化运行数据快照的结构版本：示例数据、本地开发与上线读取都固定使用这一版本，
+    # 不随 APP_ENV 改变，保证各环境读到的快照口径一致。
+    runtime_snapshot_version: int = 1
+    # 历史文本记录的来源版本：迁移回填时原样保留到快照的 source_version，
+    # 用于区分「历史文本迁移」与「迁移后动作产生」的数据来源。
+    runtime_legacy_source_version: str = "legacy-text-v1"
 
 
 settings = Settings()

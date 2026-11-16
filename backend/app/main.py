@@ -5,14 +5,32 @@
 """
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routers import ROUTERS
+from app.services.runtime_snapshot import migrate_runtime_snapshots
+from app.services.runtime_stats import recalculate_baselines
 from app.store import store
 
-app = FastAPI(title="数据仓库ETL任务编排平台", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    """启动即迁移：历史文本记录 -> 带版本类型化快照，并在同一事务内重算基线。
+
+    迁移幂等，重复启动不会产生重复数据版本；示例数据、本地开发与上线读取
+    都经过这同一条迁移路径，保证快照版本与口径一致。
+    """
+    with store.transaction():
+        migrate_runtime_snapshots()
+        recalculate_baselines()
+    yield
+
+
+app = FastAPI(title="数据仓库ETL任务编排平台", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
